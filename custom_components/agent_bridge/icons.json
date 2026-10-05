@@ -1,0 +1,7 @@
+{
+  "services": {
+    "reset_session": {
+      "service": "mdi:restart"
+    }
+  }
+}

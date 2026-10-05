@@ -1,0 +1,30 @@
+# Agent Bridge configuration. Secrets are separate files with mode 0600.
+# install.sh copies this to ~/Library/Application Support/AgentBridge/config.toml.
+
+[server]
+host = "127.0.0.1"            # Home Assistant in Docker Desktop reaches it as host.docker.internal
+port = 8318
+token_file = "@APP@/secrets/bridge.token"
+
+[proxy]
+base_url = "http://127.0.0.1:8317"   # CLIProxyAPI
+api_key_file = "@APP@/secrets/proxy.key"
+
+[homeassistant]
+# HA's MCP server (Model Context Protocol integration). Remove this block to disable.
+mcp_url = "http://homeassistant.local:8123/api/mcp"
+token_file = "@APP@/secrets/ha-mcp.token"
+
+[session]
+workdir = "@APP@/workspace"
+state_dir = "@APP@/state"
+reset_after_hours = 12         # a new conversation after this much quiet time
+idle_close_minutes = 15        # close the CLI process after this; the session resumes later
+
+[runtimes]
+claude_cli = "@CLAUDE@"
+codex_cli = "@CODEX@"
+
+[policy]
+allow_shell = false            # true lets voice sessions run commands and edit files
+extra_instructions = ""        # added after the built-in voice instructions

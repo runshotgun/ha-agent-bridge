@@ -1,0 +1,14 @@
+{
+  "domain": "agent_bridge",
+  "name": "Agent Bridge",
+  "after_dependencies": ["assist_pipeline", "intent"],
+  "codeowners": ["@runshotgun"],
+  "config_flow": true,
+  "dependencies": ["conversation"],
+  "documentation": "https://github.com/runshotgun/ha-agent-bridge",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/runshotgun/ha-agent-bridge/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

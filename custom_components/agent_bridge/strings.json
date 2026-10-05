@@ -1,0 +1,85 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This bridge is already configured.",
+      "reauth_successful": "The token was updated."
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the bridge.",
+      "invalid_auth": "The bridge rejected the token."
+    },
+    "step": {
+      "user": {
+        "title": "Connect to Agent Bridge",
+        "description": "The bridge runs on the host and keeps Claude Code and Codex sessions.",
+        "data": {
+          "url": "Bridge URL",
+          "token": "Bridge token"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update the bridge token",
+        "data": {
+          "token": "Bridge token"
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "conversation": {
+      "entry_type": "Assistant",
+      "initiate_flow": {
+        "user": "Add assistant",
+        "reconfigure": "Reconfigure assistant"
+      },
+      "abort": {
+        "cannot_connect": "Cannot connect to the bridge.",
+        "entry_not_loaded": "The bridge entry is not loaded.",
+        "reconfigure_successful": "The assistant was updated."
+      },
+      "step": {
+        "runtime": {
+          "title": "Assistant",
+          "data": {
+            "name": "Name",
+            "runtime": "CLI"
+          },
+          "data_description": {
+            "runtime": "Changing the CLI starts a new conversation."
+          }
+        },
+        "options": {
+          "title": "Model and instructions",
+          "data": {
+            "model": "Model",
+            "prompt": "Instructions"
+          },
+          "data_description": {
+            "model": "Models come from the proxy. You can type a model name.",
+            "prompt": "Added to the bridge's voice instructions for this assistant."
+          }
+        }
+      }
+    }
+  },
+  "selector": {
+    "runtime": {
+      "options": {
+        "claude": "Claude Code",
+        "codex": "Codex"
+      }
+    }
+  },
+  "services": {
+    "reset_session": {
+      "name": "Reset session",
+      "description": "Forget the assistant's conversation so the next message starts a new one.",
+      "fields": {
+        "entity_id": {
+          "name": "Assistant",
+          "description": "The Agent Bridge conversation entity."
+        }
+      }
+    }
+  }
+}

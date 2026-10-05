@@ -1,0 +1,8 @@
+reset_session:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: agent_bridge
+          domain: conversation
