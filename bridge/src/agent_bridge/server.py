@@ -18,10 +18,12 @@ from . import __version__
 from .config import Config
 from .manager import AssistantManager, drain
 from .models import RUNTIMES, AssistantSpec
+from .prompts import PromptError, PromptStore
 
 _LOGGER = logging.getLogger(__name__)
 CONFIG_KEY = web.AppKey("config", Config)
 MANAGER_KEY = web.AppKey("manager", AssistantManager)
+PROMPTS_KEY = web.AppKey("prompts", PromptStore)
 
 
 @web.middleware
@@ -38,7 +40,8 @@ def _spec_from(body: dict[str, Any]) -> AssistantSpec:
         raise web.HTTPBadRequest(text=f"runtime must be one of {RUNTIMES}")
     if not body.get("assistant_id") or not body.get("model"):
         raise web.HTTPBadRequest(text="assistant_id and model are required")
-    return AssistantSpec(body["assistant_id"], runtime, body["model"], body.get("instructions", ""))
+    return AssistantSpec(body["assistant_id"], runtime, body["model"], body.get("instructions", ""),
+                         body.get("entity_id", ""))
 
 
 async def health(request: web.Request) -> web.Response:
@@ -69,6 +72,7 @@ async def turn(request: web.Request) -> web.StreamResponse:
     if not text:
         raise web.HTTPBadRequest(text="text is required")
     context = {str(k): str(v) for k, v in (body.get("context") or {}).items()}
+    request.app[PROMPTS_KEY].remember(spec.assistant_id, spec.entity_id, spec.instructions)
 
     queue, task = request.app[MANAGER_KEY].stream_turn(spec, text, context)
     response = web.StreamResponse(headers={"Content-Type": "application/x-ndjson"})
@@ -99,6 +103,34 @@ async def reset(request: web.Request) -> web.Response:
     return web.json_response({"assistant_id": assistant_id, "had_session": had_session})
 
 
+def _prompt_error(err: PromptError) -> web.Response:
+    return web.json_response({"error": str(err)}, status=409)
+
+
+async def prompt_get(request: web.Request) -> web.Response:
+    try:
+        return web.json_response({"prompt": request.app[PROMPTS_KEY].read(request.match_info["assistant_id"])})
+    except PromptError as err:
+        return _prompt_error(err)
+
+
+async def prompt_change(request: web.Request) -> web.Response:
+    """Body: {"op": "add"|"edit"|"undo", "text", "old", "reason"}."""
+    body = await request.json()
+    try:
+        prompt = await request.app[PROMPTS_KEY].change(
+            request.match_info["assistant_id"], body.get("op", ""), body.get("reason", ""),
+            text=body.get("text", ""), old=body.get("old", ""))
+    except PromptError as err:
+        return _prompt_error(err)
+    return web.json_response({"prompt": prompt})
+
+
+async def prompt_history(request: web.Request) -> web.Response:
+    limit = int(request.query.get("limit", "5"))
+    return web.json_response({"history": request.app[PROMPTS_KEY].history(request.match_info["assistant_id"], limit)})
+
+
 async def status(request: web.Request) -> web.Response:
     return web.json_response(request.app[MANAGER_KEY].status())
 
@@ -107,6 +139,7 @@ def build_app(config: Config) -> web.Application:
     app = web.Application(middlewares=[_auth])
     app[CONFIG_KEY] = config
     app[MANAGER_KEY] = AssistantManager(config)
+    app[PROMPTS_KEY] = PromptStore(config.state_dir, config.ha_url, config.ha_token)
 
     async def lifecycle(app: web.Application):
         await app[MANAGER_KEY].start()
@@ -119,4 +152,7 @@ def build_app(config: Config) -> web.Application:
     app.router.add_get("/v1/sessions", status)
     app.router.add_post("/v1/turn", turn)
     app.router.add_post("/v1/assistants/{assistant_id}/reset", reset)
+    app.router.add_get("/v1/assistants/{assistant_id}/prompt", prompt_get)
+    app.router.add_post("/v1/assistants/{assistant_id}/prompt", prompt_change)
+    app.router.add_get("/v1/assistants/{assistant_id}/prompt/history", prompt_history)
     return app

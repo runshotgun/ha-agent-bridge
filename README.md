@@ -26,6 +26,17 @@ The project has two parts:
 4. The CLI process closes after 15 idle minutes. The next message resumes the
    same session.
 
+## Assistants edit their own prompt
+
+Every session gets an `assistant_prompt` MCP server with `prompt_read`,
+`prompt_add`, `prompt_edit`, `prompt_history`, and `prompt_undo`. An assistant
+can change only its own prompt: the one in its Home Assistant settings. It does
+so when you ask, or when it learns a lasting rule, and it says what it changed.
+The bridge saves the change through the admin-only `agent_bridge.set_prompt`
+action, keeps every old version in `state/prompts/<assistant>.jsonl`, and the
+new prompt applies from the next message in the same conversation. A prompt
+change does not reload the integration.
+
 Claude sessions use the Claude Agent SDK (`claude` in stream-json mode).
 Codex sessions use `codex app-server`. Both load the user's settings, skills,
 and MCP servers.
@@ -35,6 +46,7 @@ and MCP servers.
 - The bridge listens on `127.0.0.1` only and requires a bearer token.
 - Voice sessions can use MCP tools. They cannot run shell commands or edit
   files unless you set `allow_shell = true`.
+- Prompt edits need the bridge's Home Assistant token to belong to an admin.
 - Secrets are files with mode 0600. They go to the CLIs through environment
   variables, never through command-line arguments.
 
@@ -75,6 +87,9 @@ All routes require `Authorization: Bearer <token>`.
 | `GET /v1/sessions` | Stored sessions and whether a process is live |
 | `POST /v1/turn` | Run one turn; streams NDJSON `delta`, then `done` or `error` |
 | `POST /v1/assistants/{id}/reset` | Forget the assistant's session |
+| `GET /v1/assistants/{id}/prompt` | The prompt Home Assistant last sent |
+| `POST /v1/assistants/{id}/prompt` | `{"op": "add"\|"edit"\|"undo", "text", "old", "reason"}` |
+| `GET /v1/assistants/{id}/prompt/history` | Recent prompt changes (`limit`) |
 
 ## Development
 

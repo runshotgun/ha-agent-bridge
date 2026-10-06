@@ -6,3 +6,16 @@ reset_session:
         entity:
           integration: agent_bridge
           domain: conversation
+set_prompt:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: agent_bridge
+          domain: conversation
+    prompt:
+      required: true
+      selector:
+        text:
+          multiline: true

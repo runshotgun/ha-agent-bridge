@@ -34,6 +34,7 @@ class Config:
     proxy_key: str
     ha_mcp_url: str | None
     ha_token: str | None
+    ha_url: str | None
     workdir: Path
     state_dir: Path
     reset_after_hours: float
@@ -57,6 +58,8 @@ def load_config(path: Path) -> Config:
         proxy_key=_read_secret(Path(proxy["api_key_file"])),
         ha_mcp_url=ha.get("mcp_url"),
         ha_token=_read_secret(Path(ha["token_file"])) if ha.get("token_file") else None,
+        # REST base for prompt edits; defaults to the MCP URL's host.
+        ha_url=(ha.get("url") or (ha["mcp_url"].split("/api/", 1)[0] if ha.get("mcp_url") else None)),
         workdir=Path(session.get("workdir", "~/Library/Application Support/AgentBridge/workspace")).expanduser(),
         state_dir=state_dir,
         reset_after_hours=float(session.get("reset_after_hours", 12)),

@@ -80,6 +80,20 @@
           "description": "The Agent Bridge conversation entity."
         }
       }
+    },
+    "set_prompt": {
+      "name": "Set prompt",
+      "description": "Replace the assistant's instructions. Takes effect from its next message.",
+      "fields": {
+        "entity_id": {
+          "name": "Assistant",
+          "description": "The Agent Bridge conversation entity."
+        },
+        "prompt": {
+          "name": "Prompt",
+          "description": "The new instructions."
+        }
+      }
     }
   }
 }
