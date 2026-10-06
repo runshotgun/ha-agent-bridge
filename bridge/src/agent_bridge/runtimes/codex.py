@@ -20,7 +20,7 @@ from typing import Any
 from .. import __version__
 from ..config import Config
 from ..models import AssistantSpec
-from . import SessionNotFound
+from . import PROMPT_SERVER, SessionNotFound, prompt_server
 
 _LOGGER = logging.getLogger(__name__)
 _PROVIDER = "agent_bridge_proxy"
@@ -187,6 +187,9 @@ class CodexSession:
             "approvalPolicy": "on-request",
             "sandbox": "danger-full-access" if self._config.allow_shell else "read-only",
             "developerInstructions": self.signature[1],
+            # Thread config overrides travel over the app-server pipe, never argv.
+            "config": {f"mcp_servers.{PROMPT_SERVER}": prompt_server(
+                self._config, self._spec.assistant_id, self._config.bridge_token)},
         }
 
     async def _ensure_thread(self) -> None:

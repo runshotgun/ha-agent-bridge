@@ -84,11 +84,14 @@ class AgentBridgeConversationEntity(conversation.ConversationEntity, conversatio
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
+        # Live subentry, not the one from setup: prompt edits apply without a reload.
+        subentry = self.entry.subentries[self.subentry.subentry_id]
         payload = {
-            "assistant_id": self.subentry.subentry_id,
-            "runtime": self.subentry.data[CONF_RUNTIME],
-            "model": self.subentry.data[CONF_MODEL],
-            "instructions": self.subentry.data.get(CONF_PROMPT, ""),
+            "assistant_id": subentry.subentry_id,
+            "entity_id": self.entity_id,
+            "runtime": subentry.data[CONF_RUNTIME],
+            "model": subentry.data[CONF_MODEL],
+            "instructions": subentry.data.get(CONF_PROMPT, ""),
             "text": user_input.text,
             "context": await self._turn_context(user_input),
         }

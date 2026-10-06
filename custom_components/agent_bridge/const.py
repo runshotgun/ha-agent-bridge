@@ -17,3 +17,4 @@ TURN_TIMEOUT_S: Final = 300
 REQUEST_TIMEOUT_S: Final = 15
 
 SERVICE_RESET_SESSION: Final = "reset_session"
+SERVICE_SET_PROMPT: Final = "set_prompt"

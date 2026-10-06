@@ -14,7 +14,7 @@ from agent_bridge.sessions import SessionRecord, SessionStore
 def _config(tmp_path: Path, allow_shell: bool = False) -> Config:
     return Config(
         host="127.0.0.1", port=0, bridge_token="t", proxy_base_url="http://proxy", proxy_key="k",
-        ha_mcp_url=None, ha_token=None, workdir=tmp_path, state_dir=tmp_path,
+        ha_mcp_url=None, ha_token=None, ha_url=None, workdir=tmp_path, state_dir=tmp_path,
         reset_after_hours=12, idle_close_minutes=15, allow_shell=allow_shell,
         paths=RuntimePaths("claude", "codex"),
     )

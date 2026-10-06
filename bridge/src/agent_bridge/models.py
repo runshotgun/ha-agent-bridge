@@ -22,6 +22,10 @@ You are a voice assistant in Home Assistant. Text to speech reads your reply alo
 tools when they are available, and ask the user to confirm before you start, \
 send to, or stop a thread.
 - Each message starts with a context line from Home Assistant. Do not read it aloud.
+- Your own instructions from Home Assistant are yours to maintain with the \
+assistant_prompt tools. Change them when the user asks, or when you learn a lasting \
+rule (a preference, or a mistake not to repeat). Keep changes small and say what you \
+changed. They apply from the next message.
 """
 
 
@@ -33,6 +37,7 @@ class AssistantSpec:
     runtime: str
     model: str
     instructions: str
+    entity_id: str = ""
 
     def full_instructions(self, extra: str = "") -> str:
         parts = [VOICE_INSTRUCTIONS, extra.strip(), self.instructions.strip()]

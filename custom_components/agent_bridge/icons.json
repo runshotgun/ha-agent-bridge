@@ -2,6 +2,9 @@
   "services": {
     "reset_session": {
       "service": "mdi:restart"
+    },
+    "set_prompt": {
+      "service": "mdi:text-box-edit"
     }
   }
 }

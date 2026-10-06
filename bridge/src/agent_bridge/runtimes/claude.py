@@ -21,7 +21,7 @@ from claude_agent_sdk import (
 
 from ..config import Config
 from ..models import AssistantSpec
-from . import SessionNotFound
+from . import PROMPT_SERVER, SessionNotFound, prompt_server
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,7 +39,11 @@ class ClaudeSession:
             "ANTHROPIC_AUTH_TOKEN": config.proxy_key,
             "ANTHROPIC_API_KEY": "",
         }
-        mcp_servers: dict = {}
+        # The bridge token reaches the prompt tool through the CLI's environment.
+        env["AGENT_BRIDGE_TOKEN"] = config.bridge_token
+        mcp_servers: dict = {
+            PROMPT_SERVER: {"type": "stdio", **prompt_server(config, spec.assistant_id, "${AGENT_BRIDGE_TOKEN}")},
+        }
         if config.ha_mcp_url and config.ha_token:
             # Claude expands ${VAR} in MCP headers, so the token stays out of argv.
             env["AGENT_BRIDGE_HA_TOKEN"] = config.ha_token
