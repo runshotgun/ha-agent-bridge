@@ -177,7 +177,7 @@ class CodexSession:
         self._config = config
         self._spec = spec
         self.session_id = session_id or ""
-        self.signature = (spec.model, spec.full_instructions(config.extra_instructions))
+        self.signature = (spec.model, spec.full_instructions(config.extra_instructions, config.allow_shell))
         self._loaded_generation = -1
 
     def _thread_params(self) -> dict[str, Any]:

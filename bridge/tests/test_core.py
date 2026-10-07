@@ -48,6 +48,12 @@ def test_format_turn_skips_empty_context() -> None:
 def test_instructions_order() -> None:
     text = AssistantSpec("a", "claude", "m", "Be brief.").full_instructions("Extra.")
     assert text.index("voice assistant") < text.index("Extra.") < text.index("Be brief.")
+    assert "Do not edit files" in text
+
+
+def test_shell_access_needs_a_spoken_yes() -> None:
+    text = AssistantSpec("a", "claude", "m", "").full_instructions(allow_shell=True)
+    assert "ask for a yes" in text and "Do not edit files" not in text
 
 
 def test_codex_policy_runs_mcp_and_blocks_shell(tmp_path: Path) -> None:

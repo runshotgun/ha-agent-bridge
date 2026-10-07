@@ -18,15 +18,25 @@ You are a voice assistant in Home Assistant. Text to speech reads your reply alo
 (sections, bullet summaries). They do not apply in this channel.
 - Use the homeassistant MCP tools to read or control devices in the home.
 - Use your skills and MCP servers when they help answer.
-- Do not edit files here. For changes to code or to a machine, use the T3 Code \
-tools when they are available, and ask the user to confirm before you start, \
-send to, or stop a thread.
 - Each message starts with a context line from Home Assistant. Do not read it aloud.
 - Your own instructions from Home Assistant are yours to maintain with the \
 assistant_prompt tools. Change them when the user asks, or when you learn a lasting \
 rule (a preference, or a mistake not to repeat). Keep changes small and say what you \
 changed. They apply from the next message.
 """
+
+# allow_shell decides which of these joins the voice block. A spoken "yes" is the
+# approval: on a voice channel the agent cannot know who else is in the room.
+FILES_BLOCKED = """\
+- Do not edit files here. For changes to code or to a machine, use the T3 Code \
+tools when they are available, and ask the user to confirm before you start, \
+send to, or stop a thread."""
+FILES_ALLOWED = """\
+- You can read and change files and run commands on this Mac. Before any change \
+(a file edit, a command that changes something, an install, a restart), say in one \
+sentence what you will do and ask for a yes. Act only after the user says yes in \
+the next message. Reading and looking up need no confirmation. For code projects \
+on Keven's other machines, use the T3 Code tools."""
 
 
 @dataclass(frozen=True)
@@ -39,8 +49,9 @@ class AssistantSpec:
     instructions: str
     entity_id: str = ""
 
-    def full_instructions(self, extra: str = "") -> str:
-        parts = [VOICE_INSTRUCTIONS, extra.strip(), self.instructions.strip()]
+    def full_instructions(self, extra: str = "", allow_shell: bool = False) -> str:
+        files = FILES_ALLOWED if allow_shell else FILES_BLOCKED
+        parts = [VOICE_INSTRUCTIONS.rstrip() + "\n" + files, extra.strip(), self.instructions.strip()]
         return "\n\n".join(part for part in parts if part)
 
 

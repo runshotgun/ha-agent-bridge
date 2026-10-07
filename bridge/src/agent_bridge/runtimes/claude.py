@@ -33,7 +33,7 @@ _NOT_FOUND = ("no conversation found", "session not found")
 class ClaudeSession:
     def __init__(self, config: Config, spec: AssistantSpec, session_id: str, resume: bool) -> None:
         self.session_id = session_id
-        self.signature = (spec.model, spec.full_instructions(config.extra_instructions))
+        self.signature = (spec.model, spec.full_instructions(config.extra_instructions, config.allow_shell))
         env = {
             "ANTHROPIC_BASE_URL": config.proxy_base_url,
             "ANTHROPIC_AUTH_TOKEN": config.proxy_key,

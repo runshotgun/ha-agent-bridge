@@ -109,7 +109,7 @@ class AssistantManager:
 
     async def _live_session(self, slot: _Slot, spec: AssistantSpec, record: SessionRecord | None) -> LiveSession:
         """Reuse the open process when it matches; otherwise open or resume one."""
-        signature = (spec.model, spec.full_instructions(self._config.extra_instructions))
+        signature = (spec.model, spec.full_instructions(self._config.extra_instructions, self._config.allow_shell))
         live = slot.live
         same = live and record and slot.runtime == spec.runtime and live.session_id == record.session_id
         if same and live.signature == signature:
