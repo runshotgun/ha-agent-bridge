@@ -83,6 +83,20 @@ class AgentBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Move to another bridge address (e.g. the host service to a container), same token."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = await _validate(self.hass, user_input[CONF_URL], entry.data[CONF_TOKEN])
+            if not errors:
+                return self.async_update_reload_and_abort(entry, data_updates=user_input)
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema({vol.Required(CONF_URL, default=entry.data[CONF_URL]): str}),
+            errors=errors,
+        )
+
     @classmethod
     @callback
     def async_get_supported_subentry_types(cls, config_entry: ConfigEntry) -> dict[str, type[ConfigSubentryFlow]]:

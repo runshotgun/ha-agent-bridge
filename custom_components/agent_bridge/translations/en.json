@@ -2,7 +2,8 @@
   "config": {
     "abort": {
       "already_configured": "This bridge is already configured.",
-      "reauth_successful": "The token was updated."
+      "reauth_successful": "The token was updated.",
+      "reconfigure_successful": "The bridge address was updated."
     },
     "error": {
       "cannot_connect": "Cannot connect to the bridge.",
@@ -21,6 +22,12 @@
         "title": "Update the bridge token",
         "data": {
           "token": "Bridge token"
+        }
+      },
+      "reconfigure": {
+        "title": "Change the bridge address",
+        "data": {
+          "url": "Bridge URL"
         }
       }
     }
