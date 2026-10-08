@@ -63,7 +63,7 @@ class AssistantManager:
         self._delivery = Delivery(config.ha_url, config.ha_token, config.notify_service,
                                   config.quiet_hours, config.timezone)
         self._specs: dict[str, AssistantSpec] = {}
-        self._origins: dict[str, str] = {}  # satellite of each assistant's latest turn
+        self._origins: dict[str, tuple[str, str]] = {}  # (satellite, conversation) of the latest turn
         self._notes: dict[str, list[str]] = {}  # background results for the next turn
         self._background_slots = asyncio.Semaphore(BACKGROUND_LIMIT)
         self._background: set[asyncio.Task] = set()
@@ -85,10 +85,10 @@ class AssistantManager:
         await self._codex.close()
 
     def stream_turn(self, spec: AssistantSpec, text: str, context: dict[str, str],
-                    satellite_id: str = "") -> tuple[asyncio.Queue, asyncio.Task]:
+                    satellite_id: str = "", conversation_id: str = "") -> tuple[asyncio.Queue, asyncio.Task]:
         """Run the turn in a task that feeds a queue; the HTTP side only reads the queue."""
         self._specs[spec.assistant_id] = spec
-        self._origins[spec.assistant_id] = satellite_id
+        self._origins[spec.assistant_id] = (satellite_id, conversation_id)
         prompt = format_turn(text, context)
         if notes := self._notes.pop(spec.assistant_id, []):
             prompt = "[Background results delivered since the last message]\n" + "\n".join(notes) + "\n\n" + prompt
@@ -103,11 +103,11 @@ class AssistantManager:
             raise ValueError("No turn from this assistant yet")
         if len(self._background) >= BACKGROUND_LIMIT * 2:
             raise ValueError("Too many background tasks are waiting; try again later")
-        job = asyncio.create_task(self._run_background(spec, self._origins.get(assistant_id, ""), task, summary))
+        job = asyncio.create_task(self._run_background(spec, self._origins.get(assistant_id, ("", "")), task, summary))
         self._background.add(job)
         job.add_done_callback(self._background.discard)
 
-    async def _run_background(self, spec: AssistantSpec, origin: str, task: str, summary: str) -> None:
+    async def _run_background(self, spec: AssistantSpec, origin: tuple[str, str], task: str, summary: str) -> None:
         slot = self._slots.setdefault(spec.assistant_id, _Slot())
         async with self._background_slots:
             async with slot.lock:  # wait for the turn that asked to end, so the copy includes it
@@ -128,7 +128,7 @@ class AssistantManager:
             finally:
                 await live.close()
         result = result.strip() or f"{summary} finished without a result."
-        await self._delivery.send(origin, result)
+        await self._delivery.send(origin[0], result, conversation_id=origin[1], summary=summary)
         self._notes.setdefault(spec.assistant_id, []).append(f"- {summary} ({time.strftime('%H:%M')}): {result}")
 
     @staticmethod

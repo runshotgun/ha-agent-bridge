@@ -75,7 +75,8 @@ async def turn(request: web.Request) -> web.StreamResponse:
     context = {str(k): str(v) for k, v in (body.get("context") or {}).items()}
     request.app[PROMPTS_KEY].remember(spec.assistant_id, spec.entity_id, spec.instructions)
 
-    queue, task = request.app[MANAGER_KEY].stream_turn(spec, text, context, str(body.get("satellite_id") or ""))
+    queue, task = request.app[MANAGER_KEY].stream_turn(spec, text, context, str(body.get("satellite_id") or ""),
+                                                       str(body.get("conversation_id") or ""))
     response = web.StreamResponse(headers={"Content-Type": "application/x-ndjson"})
     await response.prepare(request)
 

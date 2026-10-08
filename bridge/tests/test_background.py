@@ -51,11 +51,11 @@ async def test_result_is_delivered_and_reaches_the_next_turn(tmp_path: Path, mon
     monkeypatch.setattr(manager_module, "ClaudeSession", _FakeLive)
     manager = AssistantManager(_config(tmp_path))
 
-    async def send(origin: str, message: str) -> None:
+    async def send(origin: str, message: str, conversation_id: str = "", summary: str = "") -> None:
         sent.append((origin, message))
     manager._delivery.send = send
     spec = AssistantSpec("a", "claude", "m", "")
-    manager._specs["a"], manager._origins["a"] = spec, SAT
+    manager._specs["a"], manager._origins["a"] = spec, (SAT, "conv")
     manager.start_background("a", "check the mail", "today's mail")
     await asyncio.gather(*manager._background)
     assert sent == [(SAT, "Today's mail: two messages.")]
@@ -64,3 +64,26 @@ async def test_result_is_delivered_and_reaches_the_next_turn(tmp_path: Path, mon
     assert "Today's mail: two messages." in await task
     _, task = manager.stream_turn(spec, "again", {})
     assert "Today's mail" not in await task  # a result is added once
+
+
+async def test_unclaimed_result_falls_back_to_notify(monkeypatch) -> None:
+    from agent_bridge.delivery import Delivery
+    calls: list[str] = []
+    d = Delivery("http://ha", "t", "notify.phone", None)
+
+    async def call(service: str, data: dict) -> bool:
+        calls.append(service)
+        return True
+
+    async def claimed(*args) -> bool:
+        return claim
+    d._call, d._claimed = call, claimed
+    claim = True
+    await d.send("", "msg", conversation_id="c")
+    assert calls == []  # a client spoke it
+    claim = False
+    await d.send("", "msg", conversation_id="c")
+    assert calls == ["notify.phone"]
+    calls.clear()
+    await d.send(SAT, "msg", conversation_id="c")
+    assert calls == ["assist_satellite.announce"]  # satellites never wait for a client

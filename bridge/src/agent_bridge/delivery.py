@@ -1,20 +1,25 @@
 """Deliver a background task's result to the user through Home Assistant.
 
-Spoken on the satellite the request came from; requests without a satellite (typed in
-the app) and quiet hours go to a notify service instead, and a failed announcement
-falls back to it too, so a result is never lost silently.
+Spoken on the satellite the request came from (not in quiet hours). Without a satellite,
+the HA event `agent_bridge_result` lets a client that started the conversation (a
+push-to-talk app) speak it; it must answer `agent_bridge_result_ack` within ACK_SECONDS.
+Everything else, and every failure, goes to the notify service, so a result is never
+lost silently.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, time
 import logging
+import uuid
 from zoneinfo import ZoneInfo
 
 from aiohttp import ClientSession, ClientTimeout
 
 _LOGGER = logging.getLogger(__name__)
+ACK_SECONDS = 15
 
 
 def in_quiet_hours(now: time, quiet: str | None) -> bool:
@@ -42,13 +47,43 @@ class Delivery:
     quiet_hours: str | None
     timezone: str = "UTC"
 
-    async def send(self, satellite_id: str, message: str) -> None:
+    async def send(self, satellite_id: str, message: str, conversation_id: str = "", summary: str = "") -> None:
         now = datetime.now(ZoneInfo(self.timezone)).time()
         service, data = choose(satellite_id, now, self.quiet_hours, self.notify_service)
-        if await self._call(service, {**data, "message": message}) or service == self.notify_service:
+        if service == "assist_satellite.announce" and await self._call(service, {**data, "message": message}):
+            return
+        if not satellite_id and conversation_id and await self._claimed(conversation_id, summary, message):
             return
         fallback, data = choose("", now, self.quiet_hours, self.notify_service)
         await self._call(fallback, {**data, "message": message})
+
+    async def _claimed(self, conversation_id: str, summary: str, message: str) -> bool:
+        """Fire agent_bridge_result; True when a client acknowledges it in time."""
+        if not (self.ha_url and self.ha_token):
+            return False
+        result_id = uuid.uuid4().hex
+        try:
+            async with ClientSession(timeout=ClientTimeout(total=ACK_SECONDS + 15)) as session, session.ws_connect(
+                f"{self.ha_url}/api/websocket"
+            ) as ws:
+                await ws.receive_json()
+                await ws.send_json({"type": "auth", "access_token": self.ha_token})
+                if (await ws.receive_json()).get("type") != "auth_ok":
+                    return False
+                await ws.send_json({"id": 1, "type": "subscribe_events", "event_type": "agent_bridge_result_ack"})
+                await ws.send_json({"id": 2, "type": "fire_event", "event_type": "agent_bridge_result", "event_data": {
+                    "result_id": result_id, "conversation_id": conversation_id, "summary": summary, "message": message}})
+                async with asyncio.timeout(ACK_SECONDS):
+                    while True:
+                        event = (await ws.receive_json()).get("event") or {}
+                        if (event.get("data") or {}).get("result_id") == result_id:
+                            _LOGGER.info("Result %s claimed by a client", result_id)
+                            return True
+        except TimeoutError:
+            _LOGGER.info("No client claimed result %s; using the fallback", result_id)
+        except Exception:  # noqa: BLE001 - fall back to notify on any failure
+            _LOGGER.exception("Could not offer result %s to clients", result_id)
+        return False
 
     async def _call(self, service: str, data: dict) -> bool:
         if not (self.ha_url and self.ha_token):
