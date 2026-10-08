@@ -67,3 +67,25 @@ def test_codex_policy_runs_mcp_and_blocks_shell(tmp_path: Path) -> None:
     assert server._answer(shell) == {"result": {"decision": "decline"}}
     assert "error" in server._answer(other)
     assert CodexAppServer(_config(tmp_path, allow_shell=True))._answer(shell) == {"result": {"decision": "accept"}}
+
+
+def test_proxy_key_header_without_login(tmp_path: Path) -> None:
+    from agent_bridge.runtimes.claude import model_auth_env
+    env = model_auth_env(_config(tmp_path), config_dir=tmp_path)
+    assert env["ANTHROPIC_CUSTOM_HEADERS"] == "X-Api-Key: k"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "k"
+
+
+def test_claude_ai_login_drops_auth_token(tmp_path: Path) -> None:
+    import json
+    from agent_bridge.runtimes.claude import model_auth_env
+    (tmp_path / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"refreshToken": "r"}}))
+    env = model_auth_env(_config(tmp_path), config_dir=tmp_path)
+    assert env["ANTHROPIC_CUSTOM_HEADERS"] == "X-Api-Key: k"
+    assert "ANTHROPIC_AUTH_TOKEN" not in env
+
+
+def test_broken_credentials_file_keeps_auth_token(tmp_path: Path) -> None:
+    from agent_bridge.runtimes.claude import model_auth_env
+    (tmp_path / ".credentials.json").write_text("not json")
+    assert model_auth_env(_config(tmp_path), config_dir=tmp_path)["ANTHROPIC_AUTH_TOKEN"] == "k"

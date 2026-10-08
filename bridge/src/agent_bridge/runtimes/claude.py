@@ -3,13 +3,17 @@
 One ClaudeSDKClient is one live `claude` process in stream-json mode. It loads
 the user's settings, skills, and MCP servers (setting_sources=["user"]), and
 talks to the model through the proxy (ANTHROPIC_BASE_URL). Secrets go through
-the environment only, never the command line.
+the environment only, never the command line. With a claude.ai login in the CLI
+home, sessions also get the claude.ai connectors (see model_auth_env).
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+import json
 import logging
+import os
+from pathlib import Path
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -30,17 +34,38 @@ WRITE_TOOLS = ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"]
 _NOT_FOUND = ("no conversation found", "session not found")
 
 
+def has_claude_ai_login(config_dir: Path | None = None) -> bool:
+    """True when the CLI home holds a claude.ai OAuth login (Linux keeps it in .credentials.json)."""
+    base = config_dir or Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    try:
+        oauth = json.loads((base / ".credentials.json").read_text()).get("claudeAiOauth") or {}
+    except (OSError, ValueError, AttributeError):
+        return False
+    return bool(oauth.get("refreshToken"))
+
+
+def model_auth_env(config: Config, config_dir: Path | None = None) -> dict[str, str]:
+    """Model auth for the CLI: the proxy key always goes as X-Api-Key, which CLIProxyAPI accepts.
+    ANTHROPIC_AUTH_TOKEN is set only without a claude.ai login: any auth token makes Claude Code
+    turn off the claude.ai connectors (Gmail, Calendar). With a login, the CLI sends its own OAuth
+    token and the proxy still authorizes the request by X-Api-Key."""
+    env = {
+        "ANTHROPIC_BASE_URL": config.proxy_base_url,
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_CUSTOM_HEADERS": f"X-Api-Key: {config.proxy_key}",
+    }
+    if not has_claude_ai_login(config_dir):
+        env["ANTHROPIC_AUTH_TOKEN"] = config.proxy_key
+    return env
+
+
 class ClaudeSession:
     def __init__(self, config: Config, spec: AssistantSpec, session_id: str, resume: bool, extensions=None,
                  background: bool = False) -> None:
         """background: a copy of the conversation (fork of session_id) for a background task."""
         self.session_id = session_id
         self.signature = session_signature(config, spec, extensions)
-        env = {
-            "ANTHROPIC_BASE_URL": config.proxy_base_url,
-            "ANTHROPIC_AUTH_TOKEN": config.proxy_key,
-            "ANTHROPIC_API_KEY": "",
-        }
+        env = model_auth_env(config)
         # The bridge token reaches the bridge's tools through the CLI's environment.
         env["AGENT_BRIDGE_TOKEN"] = config.bridge_token
         mcp_servers: dict = {name: {"type": "stdio", **server} for name, server in session_servers(

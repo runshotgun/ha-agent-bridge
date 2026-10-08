@@ -1,6 +1,6 @@
 [project]
 name = "agent-bridge"
-version = "0.5.1"
+version = "0.5.2"
 description = "Keeps Claude Code and Codex CLI sessions open for Home Assistant assistants."
 requires-python = ">=3.12"
 license = "MIT"

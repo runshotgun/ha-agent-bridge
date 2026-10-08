@@ -61,7 +61,12 @@ and a proxy that serves Claude and OpenAI models.
 3. Optional: to give sessions Home Assistant tools, enable the Home Assistant
    **Model Context Protocol Server** integration. Put a long-lived access
    token in `secrets/ha-mcp.token` and set `mcp_url` in `config.toml`.
-4. Run `bridge/install.sh` again to start the LaunchAgent.
+4. Optional: to give Claude sessions the claude.ai connectors (for example
+   Gmail and Google Calendar), sign the `claude` CLI in to claude.ai with
+   `claude auth login`. Any auth token turns these connectors off, so with a
+   claude.ai login the bridge sends the proxy key only as an `X-Api-Key`
+   header (CLIProxyAPI accepts it there) and the CLI uses its own login.
+5. Run `bridge/install.sh` again to start the LaunchAgent.
 
 The log is `~/Library/Application Support/AgentBridge/logs/bridge.log`.
 
