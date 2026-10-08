@@ -20,6 +20,7 @@ workdir = "@APP@/workspace"
 state_dir = "@APP@/state"
 reset_after_hours = 12         # a new conversation after this much quiet time
 idle_close_minutes = 15        # close the CLI process after this; the session resumes later
+# extensions_dir = "@APP@/extensions"  # the assistants' own skills, CLAUDE.md, and MCP servers (a git repo)
 
 [runtimes]
 claude_cli = "@CLAUDE@"

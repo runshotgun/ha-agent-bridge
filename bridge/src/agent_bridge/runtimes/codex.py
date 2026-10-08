@@ -20,7 +20,7 @@ from typing import Any
 from .. import __version__
 from ..config import Config
 from ..models import AssistantSpec
-from . import PROMPT_SERVER, SessionNotFound, prompt_server
+from . import SessionNotFound, session_servers, session_signature
 
 _LOGGER = logging.getLogger(__name__)
 _PROVIDER = "agent_bridge_proxy"
@@ -172,12 +172,14 @@ class CodexAppServer:
 class CodexSession:
     """One assistant's thread inside the shared app-server."""
 
-    def __init__(self, server: CodexAppServer, config: Config, spec: AssistantSpec, session_id: str | None) -> None:
+    def __init__(self, server: CodexAppServer, config: Config, spec: AssistantSpec, session_id: str | None,
+                 extensions=None) -> None:
         self._server = server
         self._config = config
         self._spec = spec
         self.session_id = session_id or ""
-        self.signature = (spec.model, spec.full_instructions(config.extra_instructions, config.allow_shell))
+        self._extensions = extensions
+        self.signature = session_signature(config, spec, extensions)
         self._loaded_generation = -1
 
     def _thread_params(self) -> dict[str, Any]:
@@ -188,8 +190,8 @@ class CodexSession:
             "sandbox": "danger-full-access" if self._config.allow_shell else "read-only",
             "developerInstructions": self.signature[1],
             # Thread config overrides travel over the app-server pipe, never argv.
-            "config": {f"mcp_servers.{PROMPT_SERVER}": prompt_server(
-                self._config, self._spec.assistant_id, self._config.bridge_token)},
+            "config": {f"mcp_servers.{name}": server for name, server in session_servers(
+                self._config, self._spec.assistant_id, self._config.bridge_token, self._extensions).items()},
         }
 
     async def _ensure_thread(self) -> None:

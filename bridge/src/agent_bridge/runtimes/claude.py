@@ -21,7 +21,7 @@ from claude_agent_sdk import (
 
 from ..config import Config
 from ..models import AssistantSpec
-from . import PROMPT_SERVER, SessionNotFound, prompt_server
+from . import SessionNotFound, session_servers, session_signature
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,19 +31,18 @@ _NOT_FOUND = ("no conversation found", "session not found")
 
 
 class ClaudeSession:
-    def __init__(self, config: Config, spec: AssistantSpec, session_id: str, resume: bool) -> None:
+    def __init__(self, config: Config, spec: AssistantSpec, session_id: str, resume: bool, extensions=None) -> None:
         self.session_id = session_id
-        self.signature = (spec.model, spec.full_instructions(config.extra_instructions, config.allow_shell))
+        self.signature = session_signature(config, spec, extensions)
         env = {
             "ANTHROPIC_BASE_URL": config.proxy_base_url,
             "ANTHROPIC_AUTH_TOKEN": config.proxy_key,
             "ANTHROPIC_API_KEY": "",
         }
-        # The bridge token reaches the prompt tool through the CLI's environment.
+        # The bridge token reaches the bridge's tools through the CLI's environment.
         env["AGENT_BRIDGE_TOKEN"] = config.bridge_token
-        mcp_servers: dict = {
-            PROMPT_SERVER: {"type": "stdio", **prompt_server(config, spec.assistant_id, "${AGENT_BRIDGE_TOKEN}")},
-        }
+        mcp_servers: dict = {name: {"type": "stdio", **server} for name, server in session_servers(
+            config, spec.assistant_id, "${AGENT_BRIDGE_TOKEN}", extensions).items()}
         if config.ha_mcp_url and config.ha_token:
             # Claude expands ${VAR} in MCP headers, so the token stays out of argv.
             env["AGENT_BRIDGE_HA_TOKEN"] = config.ha_token

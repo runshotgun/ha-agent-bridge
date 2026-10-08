@@ -42,6 +42,7 @@ class Config:
     allow_shell: bool
     paths: RuntimePaths
     extra_instructions: str = field(default="")
+    extensions_dir: Path | None = None  # the assistants' own skills and MCP servers (extensions.py)
 
 
 def load_config(path: Path) -> Config:
@@ -70,4 +71,5 @@ def load_config(path: Path) -> Config:
             codex_cli=runtimes.get("codex_cli", "codex"),
         ),
         extra_instructions=policy.get("extra_instructions", ""),
+        extensions_dir=Path(session["extensions_dir"]).expanduser() if session.get("extensions_dir") else None,
     )

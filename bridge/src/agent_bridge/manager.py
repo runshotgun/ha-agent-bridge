@@ -16,8 +16,9 @@ import time
 import uuid
 
 from .config import Config
+from .extensions import ExtensionStore
 from .models import AssistantSpec, format_turn
-from .runtimes import LiveSession, SessionNotFound
+from .runtimes import EXTENSIONS_SERVER, PROMPT_SERVER, LiveSession, SessionNotFound, session_signature
 from .runtimes.claude import ClaudeSession
 from .runtimes.codex import CodexAppServer, CodexSession
 from .sessions import SessionRecord, SessionStore
@@ -47,9 +48,13 @@ class AssistantManager:
         self._slots: dict[str, _Slot] = {}
         self._codex = CodexAppServer(config)
         self._reaper: asyncio.Task | None = None
+        self.extensions = (ExtensionStore(config.extensions_dir, {PROMPT_SERVER, EXTENSIONS_SERVER, "homeassistant"})
+                           if config.extensions_dir else None)
 
     async def start(self) -> None:
         self._config.workdir.mkdir(parents=True, exist_ok=True)
+        if self.extensions:
+            self.extensions.ensure_repo()
         self._reaper = asyncio.create_task(self._reap_idle())
 
     async def stop(self) -> None:
@@ -109,7 +114,7 @@ class AssistantManager:
 
     async def _live_session(self, slot: _Slot, spec: AssistantSpec, record: SessionRecord | None) -> LiveSession:
         """Reuse the open process when it matches; otherwise open or resume one."""
-        signature = (spec.model, spec.full_instructions(self._config.extra_instructions, self._config.allow_shell))
+        signature = session_signature(self._config, spec, self.extensions)
         live = slot.live
         same = live and record and slot.runtime == spec.runtime and live.session_id == record.session_id
         if same and live.signature == signature:
@@ -118,9 +123,9 @@ class AssistantManager:
             await live.close()
         if spec.runtime == "claude":
             session_id = record.session_id if record else str(uuid.uuid4())
-            slot.live = ClaudeSession(self._config, spec, session_id, resume=record is not None)
+            slot.live = ClaudeSession(self._config, spec, session_id, resume=record is not None, extensions=self.extensions)
         elif spec.runtime == "codex":
-            slot.live = CodexSession(self._codex, self._config, spec, record.session_id if record else None)
+            slot.live = CodexSession(self._codex, self._config, spec, record.session_id if record else None, self.extensions)
         else:
             raise ValueError(f"Unknown runtime: {spec.runtime}")
         slot.runtime = spec.runtime

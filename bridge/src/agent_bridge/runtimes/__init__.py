@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from ..config import Config
 
 PROMPT_SERVER = "assistant_prompt"
+EXTENSIONS_SERVER = "assistant_extensions"
 
 
 def prompt_server(config: Config, assistant_id: str, token: str) -> dict[str, Any]:
@@ -24,6 +25,33 @@ def prompt_server(config: Config, assistant_id: str, token: str) -> dict[str, An
             "AGENT_BRIDGE_TOKEN": token,
         },
     }
+
+
+def extensions_server(config: Config, token: str) -> dict[str, Any]:
+    """stdio MCP server for the assistants' own skills and MCP servers (extensions_mcp.py);
+    same transport and token handling as prompt_server."""
+    return {
+        "command": sys.executable,
+        "args": ["-m", "agent_bridge.extensions_mcp"],
+        "env": {"AGENT_BRIDGE_URL": f"http://127.0.0.1:{config.port}", "AGENT_BRIDGE_TOKEN": token},
+    }
+
+
+def session_servers(config: Config, assistant_id: str, token: str, extensions: Any) -> dict[str, dict[str, Any]]:
+    """The bridge's MCP servers for one session: the prompt tool, and with an extension
+    store, its tool server and every server stored in it."""
+    servers = {PROMPT_SERVER: prompt_server(config, assistant_id, token)}
+    if extensions is not None:
+        servers[EXTENSIONS_SERVER] = extensions_server(config, token)
+        servers.update(extensions.mcp_servers())
+    return servers
+
+
+def session_signature(config: Config, spec: Any, extensions: Any) -> tuple:
+    """What a live session was opened with. A new prompt, model, or extension revision
+    reopens it on the next turn, resuming the same conversation."""
+    revision = extensions.revision() if extensions is not None else ""
+    return (spec.model, spec.full_instructions(config.extra_instructions, config.allow_shell), revision)
 
 
 class SessionNotFound(Exception):

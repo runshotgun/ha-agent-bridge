@@ -16,6 +16,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 
 from . import __version__
 from .config import Config
+from .extensions import ExtensionError, ExtensionStore
 from .manager import AssistantManager, drain
 from .models import RUNTIMES, AssistantSpec
 from .prompts import PromptError, PromptStore
@@ -131,6 +132,56 @@ async def prompt_history(request: web.Request) -> web.Response:
     return web.json_response({"history": request.app[PROMPTS_KEY].history(request.match_info["assistant_id"], limit)})
 
 
+def _extensions(request: web.Request) -> ExtensionStore:
+    store = request.app[MANAGER_KEY].extensions
+    if store is None:
+        raise web.HTTPConflict(text=json.dumps({"error": "This bridge has no extensions_dir, so it keeps no skills "
+                                                         "or MCP servers of its own"}), content_type="application/json")
+    return store
+
+
+async def extensions_list(request: web.Request) -> web.Response:
+    try:
+        return web.json_response({"items": _extensions(request).list(request.query.get("kind", ""))})
+    except ExtensionError as err:
+        return web.json_response({"error": str(err)}, status=409)
+
+
+async def extensions_read(request: web.Request) -> web.Response:
+    try:
+        text = _extensions(request).read(request.match_info["kind"], request.query.get("name", ""),
+                                         request.query.get("file", ""))
+    except ExtensionError as err:
+        return web.json_response({"error": str(err)}, status=409)
+    return web.json_response({"text": text})
+
+
+async def extensions_change(request: web.Request) -> web.Response:
+    """Body: {"op": "write"|"delete"|"undo", "kind", "name", "file", "content", "commit",
+    "reason", "confirmed"}. A change applies to every session from its next turn."""
+    body = await request.json()
+    store, op, confirmed = _extensions(request), body.get("op"), bool(body.get("confirmed"))
+    try:
+        if op == "write":
+            result = "Saved: " + await store.write(body.get("kind", ""), body.get("content", ""), body.get("reason", ""),
+                                                   body.get("name", ""), body.get("file", ""), confirmed)
+        elif op == "delete":
+            await store.delete(body.get("kind", ""), body.get("name", ""), body.get("reason", ""), confirmed)
+            result = "Deleted"
+        elif op == "undo":
+            await store.undo(body.get("commit", ""), body.get("reason", ""), confirmed)
+            result = "Undone"
+        else:
+            raise ExtensionError("op must be write, delete, or undo")
+    except ExtensionError as err:
+        return web.json_response({"error": str(err)}, status=409)
+    return web.json_response({"result": result + ". It applies from the next message."})
+
+
+async def extensions_history(request: web.Request) -> web.Response:
+    return web.json_response({"history": _extensions(request).history(int(request.query.get("limit", "10")))})
+
+
 async def status(request: web.Request) -> web.Response:
     return web.json_response(request.app[MANAGER_KEY].status())
 
@@ -155,4 +206,8 @@ def build_app(config: Config) -> web.Application:
     app.router.add_get("/v1/assistants/{assistant_id}/prompt", prompt_get)
     app.router.add_post("/v1/assistants/{assistant_id}/prompt", prompt_change)
     app.router.add_get("/v1/assistants/{assistant_id}/prompt/history", prompt_history)
+    app.router.add_get("/v1/extensions", extensions_list)
+    app.router.add_post("/v1/extensions", extensions_change)
+    app.router.add_get("/v1/extensions/history", extensions_history)  # before {kind}
+    app.router.add_get("/v1/extensions/{kind}", extensions_read)
     return app
