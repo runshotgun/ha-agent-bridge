@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 from typing import Any
 
@@ -47,7 +49,7 @@ class ExtensionStore:
             self._git("init", "-q", "-b", "main")
             self._git("config", "user.name", "Agent Bridge")
             self._git("config", "user.email", "agent-bridge@localhost")
-            self._commit("Start the extension store", allow_empty=True)
+            self._commit("Start the extension store", self.root, allow_empty=True)
 
     def revision(self) -> str:
         return self._git("rev-parse", "HEAD").strip()
@@ -85,11 +87,16 @@ class ExtensionStore:
         return text
 
     def mcp_servers(self) -> dict[str, dict[str, Any]]:
-        """Launch settings for every stored MCP server (same shape as the bridge's own)."""
-        uv = shutil.which("uv") or "uv"
-        return {s["name"]: {"command": uv, "args": ["run", "--quiet", "--script",
-                                                    str(self.root / "mcp" / s["name"] / "server.py")]}
-                for s in self.list("mcp")}
+        """Launch settings for every committed MCP server (same shape as the bridge's own).
+        A server.py that only exists on disk (written by hand, or left by a failed write)
+        never runs: servers enter the store only through a checked, confirmed write."""
+        committed = self._git("ls-tree", "--name-only", "HEAD", "mcp/").split()
+        return {Path(p).name: self._launch(Path(p).name) for p in committed
+                if (self.root / p / "server.py").exists()}
+
+    def _launch(self, name: str) -> dict[str, Any]:
+        return {"command": shutil.which("uv") or "uv",
+                "args": ["run", "--quiet", "--script", str(self.root / "mcp" / name / "server.py")]}
 
     # Changes
 
@@ -112,9 +119,9 @@ class ExtensionStore:
             path.write_text(content, encoding="utf-8")
             if kind == "mcp":
                 try:
-                    if not (path.parent / "server.py").exists():
+                    if not (self.root / "mcp" / name / "server.py").exists():
                         raise ExtensionError("Write server.py first")
-                    tools = await check_server(self.mcp_servers()[name])
+                    tools = await check_server(self._launch(name))
                 except ExtensionError:
                     if before is None:
                         path.unlink()
@@ -124,7 +131,7 @@ class ExtensionStore:
                         path.write_text(before, encoding="utf-8")
                     raise
                 reason = f"{reason} (tools: {', '.join(tools)})"
-            if not self._commit(f"{kind} {name or 'CLAUDE.md'}: {reason}"):
+            if not self._commit(f"{kind} {name or 'CLAUDE.md'}: {reason}", path):
                 raise ExtensionError("No change: the file already says that")
             return reason
 
@@ -140,7 +147,7 @@ class ExtensionStore:
         async with self._lock:
             self._commit_outside_changes()
             shutil.rmtree(path)
-            self._commit(f"{kind} {name}: delete: {reason}")
+            self._commit(f"{kind} {name}: delete: {reason}", path)
 
     async def undo(self, commit: str, reason: str, confirmed: bool = False) -> None:
         """Revert one commit; one that touches an MCP server needs the user's yes."""
@@ -160,7 +167,7 @@ class ExtensionStore:
             except subprocess.CalledProcessError as err:
                 self._git("revert", "--abort")
                 raise ExtensionError("Later changes touch the same lines; undo those first") from err
-            self._commit(f"undo {commit}: {reason}")
+            self._commit(f"undo {commit}: {reason}", None)  # revert staged its own changes
 
     # Helpers
 
@@ -189,15 +196,23 @@ class ExtensionStore:
                                  "and call again with user_confirmed only after they said yes")
 
     def _commit_outside_changes(self) -> None:
-        if self._git("status", "--porcelain").strip():
-            self._commit("Changes made outside the extension tools")
+        """Keep hand edits of skills and CLAUDE.md apart from the agent's next change.
+        mcp/ is left out: unchecked code must not slip in under another change."""
+        self._git("add", "-A", "--", ".", ":(exclude)mcp")
+        if self._staged():
+            self._git("commit", "-q", "-m", "Changes made outside the extension tools")
 
-    def _commit(self, message: str, allow_empty: bool = False) -> bool:
-        self._git("add", "-A")
-        if not allow_empty and not self._git("status", "--porcelain").strip():
+    def _commit(self, message: str, path: Path | None, allow_empty: bool = False) -> bool:
+        """Commit only path (a file or folder), or what is already staged when None."""
+        if path is not None:
+            self._git("add", "-A", "--", str(path))
+        if not allow_empty and not self._staged():
             return False
         self._git("commit", "-q", *(["--allow-empty"] if allow_empty else []), "-m", message)
         return True
+
+    def _staged(self) -> bool:
+        return subprocess.run(["git", "-C", str(self.root), "diff", "--cached", "--quiet"]).returncode != 0
 
     def _git(self, *args: str) -> str:
         return subprocess.run(["git", "-C", str(self.root), *args], check=True,
@@ -218,10 +233,18 @@ def _frontmatter(text: str) -> dict[str, str]:
 
 async def check_server(launch: dict[str, Any], seconds: float = _CHECK_SECONDS) -> list[str]:
     """Start an MCP server, run the MCP handshake, and return its tool names. A server that
-    does not start or answer is refused before it is registered."""
+    does not start or answer is refused before it is registered. It runs in its own process
+    group: `uv run` starts Python as a child, and killing only uv would leave that child
+    holding the pipes open."""
     proc = await asyncio.create_subprocess_exec(
         launch["command"], *launch["args"], stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, start_new_session=True)
+
+    def stop() -> None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
     async def ask(rpc_id: int, method: str, params: dict[str, Any]) -> dict[str, Any]:
         proc.stdin.write((json.dumps({"jsonrpc": "2.0", "id": rpc_id, "method": method, "params": params}) + "\n").encode())
@@ -246,12 +269,14 @@ async def check_server(launch: dict[str, Any], seconds: float = _CHECK_SECONDS) 
     try:
         tools = await asyncio.wait_for(handshake(), seconds)
     except (ExtensionError, TimeoutError) as err:
-        proc.kill()
-        stderr = (await proc.stderr.read()).decode(errors="replace")[-1500:]
+        stop()
+        try:
+            stderr = (await asyncio.wait_for(proc.stderr.read(), 5)).decode(errors="replace")[-1500:]
+        except TimeoutError:
+            stderr = "(no output)"
         raise ExtensionError(f"The MCP server did not start ({err or 'timed out'}). Its output:\n{stderr}") from err
     finally:
-        if proc.returncode is None:
-            proc.kill()
+        stop()
         await proc.wait()
     if not tools:
         raise ExtensionError("The MCP server started but has no tools")
