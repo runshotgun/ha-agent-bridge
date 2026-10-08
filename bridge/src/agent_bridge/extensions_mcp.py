@@ -28,8 +28,8 @@ mcp = MCPServer(
         "only after the user said yes. An MCP server is one file, server.py, that starts with a "
         "PEP 723 block listing its dependencies (include \"mcp>=2.3,<3\"), uses "
         "`from mcp.server import MCPServer`, declares tools with @mcp.tool(), and ends with "
-        "mcp.run(). The bridge starts it and checks its tools before saving. Changes apply from "
-        "the next message."
+        "mcp.run(). The bridge starts it and checks its tools before saving. Change these files "
+        "only through these tools, never with file edits or commands. Changes apply from the next message."
     ),
 )
 
