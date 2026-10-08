@@ -31,7 +31,9 @@ _NOT_FOUND = ("no conversation found", "session not found")
 
 
 class ClaudeSession:
-    def __init__(self, config: Config, spec: AssistantSpec, session_id: str, resume: bool, extensions=None) -> None:
+    def __init__(self, config: Config, spec: AssistantSpec, session_id: str, resume: bool, extensions=None,
+                 background: bool = False) -> None:
+        """background: a copy of the conversation (fork of session_id) for a background task."""
         self.session_id = session_id
         self.signature = session_signature(config, spec, extensions)
         env = {
@@ -42,7 +44,7 @@ class ClaudeSession:
         # The bridge token reaches the bridge's tools through the CLI's environment.
         env["AGENT_BRIDGE_TOKEN"] = config.bridge_token
         mcp_servers: dict = {name: {"type": "stdio", **server} for name, server in session_servers(
-            config, spec.assistant_id, "${AGENT_BRIDGE_TOKEN}", extensions).items()}
+            config, spec.assistant_id, "${AGENT_BRIDGE_TOKEN}", extensions, background).items()}
         if config.ha_mcp_url and config.ha_token:
             # Claude expands ${VAR} in MCP headers, so the token stays out of argv.
             env["AGENT_BRIDGE_HA_TOKEN"] = config.ha_token
@@ -57,6 +59,7 @@ class ClaudeSession:
             model=spec.model,
             resume=session_id if resume else None,
             session_id=None if resume else session_id,
+            fork_session=background and resume,
             setting_sources=["user"],
             system_prompt={"type": "preset", "preset": "claude_code", "append": self.signature[1]},
             mcp_servers=mcp_servers,

@@ -29,3 +29,10 @@ codex_cli = "@CODEX@"
 [policy]
 allow_shell = false            # true lets voice sessions run commands and edit files
 extra_instructions = ""        # added after the built-in voice instructions
+
+[delivery]
+# Background task results: spoken on the satellite the request came from; typed requests
+# and quiet hours go to notify_service (else a persistent notification).
+# notify_service = "notify.mobile_app_my_phone"
+# quiet_hours = "22:00-07:00"
+# timezone = "America/Toronto"

@@ -75,7 +75,7 @@ async def turn(request: web.Request) -> web.StreamResponse:
     context = {str(k): str(v) for k, v in (body.get("context") or {}).items()}
     request.app[PROMPTS_KEY].remember(spec.assistant_id, spec.entity_id, spec.instructions)
 
-    queue, task = request.app[MANAGER_KEY].stream_turn(spec, text, context)
+    queue, task = request.app[MANAGER_KEY].stream_turn(spec, text, context, str(body.get("satellite_id") or ""))
     response = web.StreamResponse(headers={"Content-Type": "application/x-ndjson"})
     await response.prepare(request)
 
@@ -182,6 +182,19 @@ async def extensions_history(request: web.Request) -> web.Response:
     return web.json_response({"history": _extensions(request).history(int(request.query.get("limit", "10")))})
 
 
+async def background(request: web.Request) -> web.Response:
+    """Body: {"task", "summary"}. Runs after the current turn; the result is delivered."""
+    body = await request.json()
+    if not (body.get("task") or "").strip():
+        return web.json_response({"error": "task is required"}, status=400)
+    try:
+        request.app[MANAGER_KEY].start_background(request.match_info["assistant_id"], body["task"],
+                                                  (body.get("summary") or "the task").strip())
+    except ValueError as err:
+        return web.json_response({"error": str(err)}, status=409)
+    return web.json_response({"started": True})
+
+
 async def status(request: web.Request) -> web.Response:
     return web.json_response(request.app[MANAGER_KEY].status())
 
@@ -206,6 +219,7 @@ def build_app(config: Config) -> web.Application:
     app.router.add_get("/v1/assistants/{assistant_id}/prompt", prompt_get)
     app.router.add_post("/v1/assistants/{assistant_id}/prompt", prompt_change)
     app.router.add_get("/v1/assistants/{assistant_id}/prompt/history", prompt_history)
+    app.router.add_post("/v1/assistants/{assistant_id}/background", background)
     app.router.add_get("/v1/extensions", extensions_list)
     app.router.add_post("/v1/extensions", extensions_change)
     app.router.add_get("/v1/extensions/history", extensions_history)  # before {kind}

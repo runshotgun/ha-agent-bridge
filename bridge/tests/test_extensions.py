@@ -78,7 +78,7 @@ async def test_mcp_needs_yes_and_a_working_server(tmp_path: Path) -> None:
     assert store.list("mcp") == []  # a failed check leaves nothing behind
     assert "ping" in await store.write("mcp", SERVER, "ping tool", name="pinger", confirmed=True)
     servers = session_servers(_config(tmp_path), "a", "${T}", store)
-    assert set(servers) == {"assistant_prompt", EXTENSIONS_SERVER, "pinger"}
+    assert set(servers) == {"assistant_prompt", "assistant_tasks", EXTENSIONS_SERVER, "pinger"}
     with pytest.raises(ExtensionError, match="yes"):
         await store.delete("mcp", "pinger", "not needed")
     # A server written by hand is neither registered nor committed under another change.

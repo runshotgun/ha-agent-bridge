@@ -173,12 +173,13 @@ class CodexSession:
     """One assistant's thread inside the shared app-server."""
 
     def __init__(self, server: CodexAppServer, config: Config, spec: AssistantSpec, session_id: str | None,
-                 extensions=None) -> None:
+                 extensions=None, background: bool = False) -> None:
         self._server = server
         self._config = config
         self._spec = spec
         self.session_id = session_id or ""
         self._extensions = extensions
+        self._background = background  # a new thread for a background task (no fork in app-server)
         self.signature = session_signature(config, spec, extensions)
         self._loaded_generation = -1
 
@@ -191,7 +192,8 @@ class CodexSession:
             "developerInstructions": self.signature[1],
             # Thread config overrides travel over the app-server pipe, never argv.
             "config": {f"mcp_servers.{name}": server for name, server in session_servers(
-                self._config, self._spec.assistant_id, self._config.bridge_token, self._extensions).items()},
+                self._config, self._spec.assistant_id, self._config.bridge_token, self._extensions,
+                self._background).items()},
         }
 
     async def _ensure_thread(self) -> None:

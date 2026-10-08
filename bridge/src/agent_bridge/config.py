@@ -43,6 +43,9 @@ class Config:
     paths: RuntimePaths
     extra_instructions: str = field(default="")
     extensions_dir: Path | None = None  # the assistants' own skills and MCP servers (extensions.py)
+    notify_service: str | None = None  # background results without a satellite (delivery.py)
+    quiet_hours: str | None = None     # "22:00-07:00": notify instead of speaking
+    timezone: str = "UTC"
 
 
 def load_config(path: Path) -> Config:
@@ -50,6 +53,7 @@ def load_config(path: Path) -> Config:
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     server, proxy, session = raw["server"], raw["proxy"], raw.get("session", {})
     ha, runtimes, policy = raw.get("homeassistant", {}), raw.get("runtimes", {}), raw.get("policy", {})
+    delivery = raw.get("delivery", {})
     state_dir = Path(session.get("state_dir", "~/Library/Application Support/AgentBridge/state")).expanduser()
     return Config(
         host=server.get("host", "127.0.0.1"),
@@ -72,4 +76,7 @@ def load_config(path: Path) -> Config:
         ),
         extra_instructions=policy.get("extra_instructions", ""),
         extensions_dir=Path(session["extensions_dir"]).expanduser() if session.get("extensions_dir") else None,
+        notify_service=delivery.get("notify_service"),
+        quiet_hours=delivery.get("quiet_hours"),
+        timezone=delivery.get("timezone", "UTC"),
     )

@@ -4,6 +4,8 @@ Rules: one session per assistant; a new session after 12 quiet hours or a
 runtime change; one turn at a time per assistant; live processes close after
 a short idle time and resume the same session on the next turn. Each turn runs
 as its own task, so a dropped HTTP client never leaves a CLI mid-response.
+Background tasks run in a copy of the conversation, in their own process, and their
+results are delivered (delivery.py) and added to the assistant's next turn.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import time
 import uuid
 
 from .config import Config
+from .delivery import Delivery
 from .extensions import ExtensionStore
 from .models import AssistantSpec, format_turn
 from .runtimes import EXTENSIONS_SERVER, PROMPT_SERVER, LiveSession, SessionNotFound, session_signature
@@ -25,6 +28,15 @@ from .sessions import SessionRecord, SessionStore
 
 _LOGGER = logging.getLogger(__name__)
 _DONE = object()
+BACKGROUND_LIMIT = 3
+BACKGROUND_SECONDS = 30 * 60
+BACKGROUND_PROMPT = """\
+[Background task. The user is no longer waiting in this conversation. Your final reply is \
+delivered to them later, spoken where they asked or as a phone notification, so it must \
+stand alone. Do the whole task now: use the deep subagent for work that needs thinking, \
+and to wait for a T3 thread use t3_wait_thread. End with only the result in one to three \
+short plain sentences that start by naming what it is about, with no markdown.]
+Task: {task}"""
 
 
 @dataclass
@@ -48,6 +60,13 @@ class AssistantManager:
         self._slots: dict[str, _Slot] = {}
         self._codex = CodexAppServer(config)
         self._reaper: asyncio.Task | None = None
+        self._delivery = Delivery(config.ha_url, config.ha_token, config.notify_service,
+                                  config.quiet_hours, config.timezone)
+        self._specs: dict[str, AssistantSpec] = {}
+        self._origins: dict[str, str] = {}  # satellite of each assistant's latest turn
+        self._notes: dict[str, list[str]] = {}  # background results for the next turn
+        self._background_slots = asyncio.Semaphore(BACKGROUND_LIMIT)
+        self._background: set[asyncio.Task] = set()
         self.extensions = (ExtensionStore(config.extensions_dir, {PROMPT_SERVER, EXTENSIONS_SERVER, "homeassistant"})
                            if config.extensions_dir else None)
 
@@ -65,11 +84,56 @@ class AssistantManager:
                 await slot.live.close()
         await self._codex.close()
 
-    def stream_turn(self, spec: AssistantSpec, text: str, context: dict[str, str]) -> tuple[asyncio.Queue, asyncio.Task]:
+    def stream_turn(self, spec: AssistantSpec, text: str, context: dict[str, str],
+                    satellite_id: str = "") -> tuple[asyncio.Queue, asyncio.Task]:
         """Run the turn in a task that feeds a queue; the HTTP side only reads the queue."""
+        self._specs[spec.assistant_id] = spec
+        self._origins[spec.assistant_id] = satellite_id
+        prompt = format_turn(text, context)
+        if notes := self._notes.pop(spec.assistant_id, []):
+            prompt = "[Background results delivered since the last message]\n" + "\n".join(notes) + "\n\n" + prompt
         queue: asyncio.Queue = asyncio.Queue()
-        task = asyncio.create_task(self._run_turn(spec, format_turn(text, context), queue))
+        task = asyncio.create_task(self._run_turn(spec, prompt, queue))
         return queue, task
+
+    def start_background(self, assistant_id: str, task: str, summary: str) -> None:
+        """Queue a background task from inside a turn; it starts when that turn ends."""
+        spec = self._specs.get(assistant_id)
+        if spec is None:
+            raise ValueError("No turn from this assistant yet")
+        if len(self._background) >= BACKGROUND_LIMIT * 2:
+            raise ValueError("Too many background tasks are waiting; try again later")
+        job = asyncio.create_task(self._run_background(spec, self._origins.get(assistant_id, ""), task, summary))
+        self._background.add(job)
+        job.add_done_callback(self._background.discard)
+
+    async def _run_background(self, spec: AssistantSpec, origin: str, task: str, summary: str) -> None:
+        slot = self._slots.setdefault(spec.assistant_id, _Slot())
+        async with self._background_slots:
+            async with slot.lock:  # wait for the turn that asked to end, so the copy includes it
+                record = self._store.get(spec.assistant_id)
+            fork = record is not None and record.runtime == spec.runtime
+            if spec.runtime == "claude":
+                live: LiveSession = ClaudeSession(self._config, spec, record.session_id if fork else str(uuid.uuid4()),
+                                                  resume=fork, extensions=self.extensions, background=True)
+            else:
+                live = CodexSession(self._codex, self._config, spec, None, self.extensions, background=True)
+            try:
+                result = await asyncio.wait_for(self._collect(live, BACKGROUND_PROMPT.format(task=task)), BACKGROUND_SECONDS)
+            except TimeoutError:
+                result = f"I could not finish {summary} within 30 minutes."
+            except Exception as err:  # noqa: BLE001 - the user must hear about every failure
+                _LOGGER.exception("Background task failed for %s", spec.assistant_id)
+                result = f"I could not finish {summary}: {str(err)[:150] or type(err).__name__}."
+            finally:
+                await live.close()
+        result = result.strip() or f"{summary} finished without a result."
+        await self._delivery.send(origin, result)
+        self._notes.setdefault(spec.assistant_id, []).append(f"- {summary} ({time.strftime('%H:%M')}): {result}")
+
+    @staticmethod
+    async def _collect(live: LiveSession, prompt: str) -> str:
+        return "".join([delta async for delta in live.turn(prompt)])
 
     async def _run_turn(self, spec: AssistantSpec, prompt: str, queue: asyncio.Queue) -> TurnResult:
         slot = self._slots.setdefault(spec.assistant_id, _Slot())
@@ -169,7 +233,8 @@ class AssistantManager:
                     _LOGGER.info("Closing idle session for %s", assistant_id)
                     await slot.live.close()
                     slot.live = None
-            codex_busy = any(s.lock.locked() or (s.live and s.runtime == "codex") for s in self._slots.values())
+            codex_busy = bool(self._background) or any(
+                s.lock.locked() or (s.live and s.runtime == "codex") for s in self._slots.values())
             if self._codex.running and not codex_busy:
                 await self._codex.close()
 

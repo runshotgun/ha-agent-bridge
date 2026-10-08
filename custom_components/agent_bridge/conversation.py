@@ -94,6 +94,8 @@ class AgentBridgeConversationEntity(conversation.ConversationEntity, conversatio
             "instructions": subentry.data.get(CONF_PROMPT, ""),
             "text": user_input.text,
             "context": await self._turn_context(user_input),
+            # Where a background task's result is spoken later (empty for typed requests).
+            "satellite_id": user_input.satellite_id or "",
         }
         async for _content in chat_log.async_add_delta_content_stream(self.entity_id, self._stream(payload)):
             pass

@@ -10,6 +10,7 @@ from ..config import Config
 
 PROMPT_SERVER = "assistant_prompt"
 EXTENSIONS_SERVER = "assistant_extensions"
+TASKS_SERVER = "assistant_tasks"
 
 
 def prompt_server(config: Config, assistant_id: str, token: str) -> dict[str, Any]:
@@ -37,10 +38,20 @@ def extensions_server(config: Config, token: str) -> dict[str, Any]:
     }
 
 
-def session_servers(config: Config, assistant_id: str, token: str, extensions: Any) -> dict[str, dict[str, Any]]:
-    """The bridge's MCP servers for one session: the prompt tool, and with an extension
+def tasks_server(config: Config, assistant_id: str, token: str) -> dict[str, Any]:
+    """stdio MCP server for background tasks (tasks_mcp.py); same transport as prompt_server."""
+    server = prompt_server(config, assistant_id, token)
+    return {**server, "args": ["-m", "agent_bridge.tasks_mcp"]}
+
+
+def session_servers(config: Config, assistant_id: str, token: str, extensions: Any,
+                    background: bool = False) -> dict[str, dict[str, Any]]:
+    """The bridge's MCP servers for one session: the prompt tool, the background-task tool
+    (not inside a background task, so one cannot start another), and with an extension
     store, its tool server and every server stored in it."""
     servers = {PROMPT_SERVER: prompt_server(config, assistant_id, token)}
+    if not background:
+        servers[TASKS_SERVER] = tasks_server(config, assistant_id, token)
     if extensions is not None:
         servers[EXTENSIONS_SERVER] = extensions_server(config, token)
         servers.update(extensions.mcp_servers())
